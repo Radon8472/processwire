@@ -200,8 +200,10 @@ class LanguageSupportPageNames extends WireData implements Module, ConfigurableM
 		
 		if(strlen($pageNumUrlPrefix)) {
 			$config = $this->wire()->config;
-			$config->set('_pageNumUrlPrefix', $config->pageNumUrlPrefix); // original/backup url prefix
-			$config->pageNumUrlPrefix = $pageNumUrlPrefix;
+			if(!$config->admin) {
+				$config->set('_pageNumUrlPrefix', $config->pageNumUrlPrefix); // original/backup url prefix
+				$config->pageNumUrlPrefix = $pageNumUrlPrefix;
+			}
 		}
 	}
 
@@ -576,8 +578,7 @@ class LanguageSupportPageNames extends WireData implements Module, ConfigurableM
 	 */
 	public function hookAfterPagesRequestGetPage(HookEvent $event) {
 
-		/** @var PagesRequest $request */
-		$request = $event->object;
+		$request = $event->object; /** @var PagesRequest $request */
 		$this->requestPath = $request->getRequestPath();
 		$languageName = $request->getLanguageName();
 
@@ -586,8 +587,16 @@ class LanguageSupportPageNames extends WireData implements Module, ConfigurableM
 			// that has no possibilty of language support
 			$this->bypass = true;
 		} else if($languageName) {
-			$language = $this->wire()->languages->get($languageName);
-			if($language && $language->id) $this->setLanguage($language);
+			$config = $this->wire()->config;
+			$page = $event->return; /** @var Page $page */
+			$user = $this->wire()->user;
+			$admin = $page && $page->id && in_array($page->template->name, $config->adminTemplates);
+			if($admin && $user && $user->isLoggedin()) {
+				// keep user’s configured language setting
+			} else {
+				$language = $this->wire()->languages->get($languageName);
+				if($language && $language->id) $this->setLanguage($language);
+			}
 		}
 
 		$event->removeHook($event);

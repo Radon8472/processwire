@@ -23,6 +23,16 @@ class FieldtypeRepeaterConfigHelper extends Wire {
 	 */
 	public function __construct(Field $field) {
 		$this->field = $field;
+		parent::__construct();
+	}
+
+	/**
+	 * @return Field
+	 * @since 3.0.188
+	 * 
+	 */
+	public function getField() {
+		return $this->field;
 	}
 
 	/**
@@ -106,7 +116,7 @@ class FieldtypeRepeaterConfigHelper extends Wire {
 			$select->addOption($f->id, $f->name, $attrs);
 		}
 
-		foreach($this->wire('fields') as $f) {
+		foreach($this->wire()->fields as $f) {
 			if($template->fieldgroup->has($f)) continue;
 			if($f->name == $this->field->name) continue;
 			if(($f->flags & Field::flagPermanent) && !$this->wire('config')->advanced) continue;
@@ -142,6 +152,7 @@ class FieldtypeRepeaterConfigHelper extends Wire {
 		$f->description .= ' ' . $this->_('To use multiple fields, or to specify your own format string, surround field names in {brackets}.');
 		$f->description .= ' ' . $this->_('To include a repeater index number with each label, add "#n" somewhere in your format string.');
 		$f->notes = $this->_('Example: #n: {title}');
+		$f->themeOffset = 1;
 		$inputfields->add($f);
 
 		// -------------------------------------------------
@@ -156,11 +167,11 @@ class FieldtypeRepeaterConfigHelper extends Wire {
 		$inputfields->add($fs);
 
 		$value = (int) $field->get('repeaterDepth');
+		/** @var InputfieldInteger $f */
 		$f = $modules->get('InputfieldInteger');
 		$f->attr('name', 'repeaterDepth');
 		$f->attr('value', $value > 0 ? $value : '');
 		$f->label = $this->_('Item depth');
-		$f->collapsed = Inputfield::collapsedBlank;
 		$f->description = $this->_('To support items with depth, enter the max allowed depth, or leave blank to disable.');
 		$f->description .= ' ' . $this->_('When editing a repeater, you can change item depth by clicking the repeater item drag arrows and dragging the item right or left.');
 		$f->notes = $this->_('Depths are zero-based, meaning a depth of 3 allows depths 0, 1, 2 and 3.');
@@ -176,12 +187,12 @@ class FieldtypeRepeaterConfigHelper extends Wire {
 			$this->_('This setting makes the admin page editor treat item depth as a parent/child relationship.') . ' ' .
 			$this->_('This means that moving/sorting an item includes child items too.') . ' ' .
 			$this->_('It also prevents a child item from being dragged to have a depth that exceeds its parent by more than 1.');
+		$f->notes = $this->_('“Yes” recommended.'); 
 		$f->val((int) $field->get('familyFriendly'));
 		$f->columnWidth = 50;
 		$fs->add($f);
 
 		// -------------------------------------------------
-
 
 		/** @var InputfieldFieldset $fs */	
 		$fs = $modules->get('InputfieldFieldset');
@@ -262,7 +273,8 @@ class FieldtypeRepeaterConfigHelper extends Wire {
 		$fs->add($f);
 		
 		// -------------------------------------------------
-		
+
+		/** @var InputfieldCheckbox $f */	
 		$f = $modules->get('InputfieldCheckbox');
 		$f->attr('name', 'accordionMode');
 		$f->label = $this->_('Use accordion mode?');
@@ -278,6 +290,7 @@ class FieldtypeRepeaterConfigHelper extends Wire {
 	
 		$maxItems = (int) $field->get('repeaterMaxItems');
 		$minItems = (int) $field->get('repeaterMinItems');
+		
 		/** @var InputfieldInteger $f */
 		$f = $modules->get('InputfieldInteger');
 		$f->attr('name', 'repeaterMaxItems');
@@ -300,38 +313,11 @@ class FieldtypeRepeaterConfigHelper extends Wire {
 		$fs->add($f);
 		
 		// -------------------------------------------------
-
-		/** @var FieldtypeRepeater $fieldtype */
-		$fieldtype = $this->field->type;
-		$numOldReady = $fieldtype->countOldReadyPages($field);
-		if($numOldReady) {
-			// @todo: should we just do this automatically?
-			$f = $modules->get('InputfieldCheckbox');
-			$f->attr('name', '_deleteOldReady');
-			$f->label = $this->_('Delete old/unused repeater items?');
-			$f->description = sprintf($this->_('There are **%d** old/unused repeater item(s), check this box to delete them.'), $numOldReady);
-			$f->notes = $this->_('A repeater item is considered old if it is at least 3 days and not yet been populated or published.');
-			$f->icon = 'warning';
-			$inputfields->add($f);
+		
+		if(strpos($this->field->type->className(), 'Fieldset') === false) {
+			$this->getConfigInputfieldsStorage($inputfields);
 		}
-
-		// -------------------------------------------------
-
-		/** TBA
-		if(is_null($field->repeaterMaxItems)) $field->repeaterMaxItems = self::defaultRepeaterMaxItems; 
-		$input = wire('modules')->get('InputfieldInteger'); 
-		$input->attr('id+name', 'repeaterMaxItems'); 
-		$input->attr('value', (int) abs($field->repeaterMaxItems)); 
-		$input->label = $this->_('Max Repeater Items') . " ({$field->repeaterMaxItems})";
-		$input->description = $this->_('The maximum number of repeater items allowed.');
-		$input->notes = 
-		$this->_('If set to 0, there will be no maximum limit.') . " \n" . 
-		$this->_('If set to 1, this field will act as a single item [Page] rather than multiple items [PageArray].') . " \n" . 
-		$this->_('Note that when outputFormatting is off, it will always behave as a PageArray regardless of the setting here.');
-		$input->collapsed = Inputfield::collapsedYes;
-		$inputfields->add($input); 
-		 */
-
+		
 		// -------------------------------------------------
 
 		/* TBA
@@ -351,6 +337,114 @@ class FieldtypeRepeaterConfigHelper extends Wire {
 	}
 
 	/**
+	 * @param InputfieldWrapper $inputfields
+	 * @return InputfieldFieldset
+	 * 
+	 */
+	protected function getConfigInputfieldsStorage(InputfieldWrapper $inputfields) {
+		
+		$modules = $this->wire()->modules;
+		$session = $this->wire()->session;
+		$input = $this->wire()->input;
+		$fieldtype = $this->field->type; /** @var FieldtypeRepeater $fieldtype */
+		$limit = 1000;
+
+		/** @var InputfieldFieldset $fs */
+		$fs = $modules->get('InputfieldFieldset');
+		$fs->label = $this->_('Repeater storage');
+		$fs->attr('name', '_repeaterStorageSettings');
+		$fs->collapsed =  Inputfield::collapsedYes;
+		$fs->icon = 'database';
+		$fs->themeOffset = 1;
+
+		/** @var InputfieldCheckbox $f */
+		$f = $modules->get('InputfieldCheckbox');
+		$f->attr('name', 'lazyParents');
+		$f->label = $this->_('Use fewer pages for storage?');
+		$f->icon = 'flask';
+		$f->description =
+			$this->_('When checked, repeater page parents will not be created until at least one child repeater item exists.') . ' ' .
+			$this->_('In addition, repeater page parents with no repeater items will be removed when appropriate.');
+		$f->notes =
+			$this->_('Currently an experimental option for testing (lazyParents), but will later become default.');
+		if($this->field->get('lazyParents')) $f->attr('checked', 'checked');
+		$fs->add($f);
+
+		/** @var InputfieldCheckbox $f */
+		$f = $modules->get('InputfieldCheckbox');
+		$f->icon = 'trash';
+		$findName = '_findUnnecessaryPages';
+		$deleteName = '_deleteUnnecessaryPages';
+
+		if($session->getFor($this, $findName)) {
+			$fs->collapsed = Inputfield::collapsedNo;
+			$inputfields->prepend($fs);
+			set_time_limit(600);
+			$parents = $fieldtype->findUnnecessaryParents($this->field, array('limit' => $limit));
+			$qty = $parents->count();
+			if($qty) {
+				$f->attr('name', $deleteName);
+				$f->label = sprintf($this->_('Delete %d unnecessary pages?'), $parents->count());
+				$paths = array();
+				if($qty < 100) {
+					foreach($parents as $parent) {
+						$note = $parent->numChildren ? '(orphan parent)' : '(0 repeater items)';
+						$paths[] = $parent->path() . " $note";
+					}
+					$f->description = $this->_('Found the following unnecessary pages:') . "\n" . implode("\n", $paths);
+				} else {
+					$f->description = sprintf($this->_('Found %d unnecessary repeater parents that either had 0 repeater items or had no owning page.'), $qty);
+				}
+				$f->notes = $this->_('Always backup before performing mass deletions.');
+				$this->warning(sprintf($this->_('Found %d unnecessary repeater parent pages'), $qty));
+				$fs->prepend($f);
+			} else {
+				$this->warning($this->_('No unnecessary pages found'));
+			}
+			$session->removeFor($this, $findName);
+
+		} else if($input->post($findName)) {
+			$session->setFor($this, $findName, 1);
+
+		} else if($input->post($deleteName)) {
+			set_time_limit(600);
+			$parents = $fieldtype->findUnnecessaryParents($this->field, array('limit' => $limit));
+			$numDeleted = 0;
+			if($parents->count() >= $limit) {
+				$this->warning(sprintf($this->_('Max of %d items per request reached, you will want to run this again.'), $limit));
+			}
+			foreach($parents as $parent) {
+				$numDeleted += $fieldtype->deleteRepeaterPage($parent, $this->field, true);
+			}
+			$this->warning(sprintf($this->_('Deleted %d unnecessary pages'), $numDeleted));
+
+		} else {
+			$f->attr('name', $findName);
+			$f->label = $this->_('Find and optionally delete unnecessary pages?');
+			$fs->add($f);
+			$inputfields->add($fs);
+		}
+
+		// -------------------------------------------------
+
+		if($input->requestMethod('GET')) {
+			$numOldReady = $fieldtype->countOldReadyPages($this->field);
+			if($numOldReady) {
+				// @todo: should we just do this automatically?
+				$f = $modules->get('InputfieldCheckbox');
+				$f->attr('name', '_deleteOldReady');
+				$f->label = $this->_('Delete old/unused repeater items?');
+				$f->description = sprintf($this->_('There are **%d** old/unused repeater item(s), check this box to delete them.'), $numOldReady);
+				$f->notes = $this->_('A repeater item is considered old if it is at least 3 days and not yet been populated or published.');
+				$f->icon = 'warning';
+				$fs->add($f);
+			}
+		}
+		
+		return $fs;
+	}
+
+	/**
 	 * Helper to getConfigInputfields, handles adding and removing of repeater fields
 	 *
 	 * @param Template $template
@@ -358,13 +452,16 @@ class FieldtypeRepeaterConfigHelper extends Wire {
 	 *
 	 */
 	public function saveConfigInputfields(Template $template) {
+		
+		$input = $this->wire()->input;
+		$fields = $this->wire()->fields;
 
 		$field = $this->field;
 		$fieldgroup = $template->fieldgroup;
-		$ids = $this->wire('input')->post->repeaterFields;
+		$ids = $input->post('repeaterFields');
 
 		foreach($ids as $id) {
-			if(!$f = $this->wire('fields')->get((int) $id)) continue;
+			if(!$f = $fields->get((int) $id)) continue;
 			if(!$fieldgroup->has($f)) $this->message(sprintf($this->_('Added Field "%1$s" to "%2$s"'), $f, $field));
 			$fieldgroup->add($f);
 		}
@@ -377,7 +474,7 @@ class FieldtypeRepeaterConfigHelper extends Wire {
 
 		$fieldgroup->save();
 
-		if($this->wire('input')->post('_deleteOldReady')) {
+		if($input->post('_deleteOldReady')) {
 			/** @var FieldtypeRepeater $fieldtype */
 			$fieldtype = $this->field->type;
 			$cnt = $fieldtype->countOldReadyPages($field, true);
@@ -397,5 +494,16 @@ class FieldtypeRepeaterConfigHelper extends Wire {
 		*/
 	}
 
+	/**
+	 * Advanced config
+	 *
+	 * @param InputfieldWrapper $inputfields
+	 *
+	 */
+	public function getConfigAdvancedInputfields(InputfieldWrapper $inputfields) {
+		// these two are potential troublemakers when it comes to repeaters
+		$inputfields->remove($inputfields->get('autojoin'));
+		$inputfields->remove($inputfields->get('global'));
+	}
 
 }
