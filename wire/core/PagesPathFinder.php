@@ -432,7 +432,7 @@ class PagesPathFinder extends Wire {
 					if(empty($result['language']['name'])) $this->setResultLanguage($language);
 				}
 				if(!isset($namesByLanguage[$language->name])) $namesByLanguage[$language->name] = array();
-				$namesByLanguage[$language->name][] = strlen($nameLanguage) ? $nameLanguage : $nameDefault;
+				$namesByLanguage[$language->name][] = strlen("$nameLanguage") ? $nameLanguage : $nameDefault;
 			}
 		}
 		
@@ -1348,6 +1348,7 @@ class PagesPathFinder extends Wire {
 	 *
 	 */
 	protected function pageNameToUTF8($name) {
+		$name = (string) $name;
 		if($this->pageNameCharset !== 'UTF8') return $name;
 		if(strpos($name, 'xn-') !== 0) return $name;
 		return $this->wire()->sanitizer->pageName($name, Sanitizer::toUTF8);
@@ -1906,7 +1907,8 @@ class PagesPathFinder extends Wire {
 		if(strpos($path, '/') !== 0) $path = "/$path";
 		$segment = $this->languageSegment($language);
 		if(!strlen($segment)) return $path;
-		if($path === "/$segment" || strpos($path, "/$segment/") === 0) return $path;
+		if($path === "/$segment" && $this->result['page']['id'] < 2) return $path;
+		if(strpos($path, "/$segment/") === 0) return $path;
 		return "/$segment$path";
 	}
 

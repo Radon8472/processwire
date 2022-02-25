@@ -369,7 +369,7 @@ class PagesEditor extends Wire {
 		foreach($page->template->fieldgroup as $field) {
 			if($page->isLoaded($field->name)) continue; // value already set
 			if(!$page->hasField($field)) continue; // field not valid for page
-			if(!strlen($field->defaultValue)) continue; // no defaultValue property defined with Fieldtype config inputfields
+			if(!strlen("$field->defaultValue")) continue; // no defaultValue property defined with Fieldtype config inputfields
 			try {
 				$blankValue = $field->type->getBlankValue($page, $field);
 				if(is_object($blankValue) || is_array($blankValue)) continue; // we don't currently handle complex types
@@ -1844,7 +1844,7 @@ class PagesEditor extends Wire {
 		}
 
 		// detect template from parent (when possible)
-		if(!$template && !empty($parent)) {
+		if(!$template && !empty($parent) && empty($options['id'])) {
 			$parent = is_object($parent) ? $parent : $this->pages->get($parent);
 			if($parent->id) {
 				if(count($parent->template->childTemplates) === 1) {
@@ -1856,7 +1856,7 @@ class PagesEditor extends Wire {
 		}
 
 		// detect parent from template (when possible)
-		if($template && empty($parent) && count($template->parentTemplates) === 1) {
+		if($template && empty($parent) && empty($options['id']) && count($template->parentTemplates) === 1) {
 			$parentTemplates = $template->parentTemplates();
 			if($parentTemplates->count()) {
 				$numParents = $this->pages->count("template=$parentTemplates, include=all");
@@ -1873,7 +1873,12 @@ class PagesEditor extends Wire {
 		if($template) $options['template'] = $template;
 		if($class) $options['pageClass'] = $class;
 		
-		unset($options['id']); // just in case it was there
+		if(isset($options['id']) && ctype_digit("$options[id]") && (int) $options['id'] > 0) {
+			$options['id'] = (int) $options['id'];
+			if($parent && "$options[id]" === "$parent") unset($options['parent']); 
+		} else {
+			unset($options['id']);
+		}
 
 		return $options;
 	}

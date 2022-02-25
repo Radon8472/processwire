@@ -341,14 +341,14 @@ class WireCache extends Wire {
 		}
 
 		ob_start();
-
+	
 		try {
 			if(count($args)) {
 				$value = call_user_func_array($func, $args);
 			} else {
 				$value = $func();
 			}
-		} finally {
+		} finally { // PHP 5.5+
 			$out = ob_get_contents();
 			ob_end_clean();
 		}

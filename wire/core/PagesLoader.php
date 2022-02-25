@@ -407,6 +407,7 @@ class PagesLoader extends Wire {
 		
 		if($lazy) {
 			// lazy load: create empty pages containing only id and template
+			$templates = $this->wire()->templates;
 			$pages = $this->pages->newPageArray($loadOptions);
 			$pages->finderOptions($options);
 			$pages->setDuplicateChecking(false);
@@ -419,7 +420,7 @@ class PagesLoader extends Wire {
 				if(isset($templatesByID[$templateID])) {
 					$template = $templatesByID[$templateID];
 				} else {
-					$template = $this->wire('templates')->get($templateID);
+					$template = $templates->get($templateID);
 					$templatesByID[$templateID] = $template;
 				}
 				$page = $this->pages->newPage($template);
@@ -441,6 +442,7 @@ class PagesLoader extends Wire {
 
 		} else if($loadPages) {
 			// parent_id is null unless a single parent was specified in the selectors
+			$templates = $this->wire()->templates;
 			$parent_id = $pageFinder->getParentID();
 			$idsSorted = array();
 			$idsByTemplate = array();
@@ -462,7 +464,7 @@ class PagesLoader extends Wire {
 				$unsortedPages = $this->pages->newPageArray($loadOptions);
 				foreach($idsByTemplate as $tpl_id => $ids) {
 					$opt = $loadOptions;
-					$opt['template'] = $this->wire('templates')->get($tpl_id);
+					$opt['template'] = $templates->get($tpl_id);
 					$opt['parent_id'] = $parent_id;
 					$unsortedPages->import($this->getById($ids, $opt));
 				}
@@ -482,7 +484,7 @@ class PagesLoader extends Wire {
 				$pages = $this->pages->newPageArray($loadOptions);
 				reset($idsByTemplate);
 				$opt = $loadOptions;
-				$opt['template'] = $this->wire('templates')->get(key($idsByTemplate));
+				$opt['template'] = $templates->get(key($idsByTemplate));
 				$opt['parent_id'] = $parent_id;
 				$pages->import($this->getById($idsSorted, $opt));
 			}
@@ -662,7 +664,11 @@ class PagesLoader extends Wire {
 
 			foreach($row as $key => $value) {
 				if(strpos($key, '__')) {
-					$page->setFieldValue($key, $value, false);
+					if($value === null) {
+						$row[$key] = 'null'; // ensure detected by later isset in foreach($joinFields)
+					} else {
+						$page->setFieldValue($key, $value, false);
+					}
 				} else {
 					$page->setForced($key, $value);
 				}
@@ -740,13 +746,21 @@ class PagesLoader extends Wire {
 		if($page && !$page->viewable(false)) {
 			// page found but is not viewable, check if include mode was specified and would allow the page
 			$selectors = $items->getSelectors();
-			$include = $selectors ? $selectors->getSelectorByField('include') : null;
+			if($selectors) {
+				$include = $selectors->getSelectorByField('include');
+				$checkAccess = $selectors->getSelectorByField('check_access');
+				if(!$checkAccess) $checkAccess = $selectors->getSelectorByField('checkAccess');
+				$checkAccess = $checkAccess ? (bool) $checkAccess->value() : true;
+			} else {
+				$include = null;
+				$checkAccess = true;
+			}
 			if(!$include) {
 				// there was no “include=” selector present
-				$page = null;
+				if($checkAccess === true) $page = null;
 			} else if($include->value() === 'all') {
 				// allow $page to pass through with include=all mode
-			} else if($include->value() === 'unpublished' && $page->hasStatus(Page::statusUnpublished)) {
+			} else if($include->value() === 'unpublished' && $page->hasStatus(Page::statusUnpublished) && $checkAccess) {
 				// check if user would have access without unpublished status
 				$status = $page->status;
 				$page->setQuietly('status', $status & ~Page::statusUnpublished);
@@ -754,7 +768,7 @@ class PagesLoader extends Wire {
 				$page->setQuietly('status', $status); // restore
 				if(!$viewable) $page = null;
 			} else {
-				$page = null;
+				if($checkAccess === true) $page = null;
 			}
 		}
 
@@ -1164,9 +1178,10 @@ class PagesLoader extends Wire {
 						$page = $this->pages->newPage(array(
 							'pageClass' => $pageClass,
 							'template' => $pageTemplate ? $pageTemplate : $row['templates_id'],
+							'parent' => $row['parent_id'], 
 						));
 					}
-					unset($row['templates_id']);
+					unset($row['templates_id'], $row['parent_id']);
 					foreach($row as $key => $value) $page->set($key, $value);
 					if($options['cache'] === false) $page->loaderCache = false;
 					$page->instanceID = ++self::$pageInstanceID;

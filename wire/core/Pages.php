@@ -8,7 +8,7 @@
  *
  * This is the most used object in the ProcessWire API. 
  *
- * ProcessWire 3.x, Copyright 2020 by Ryan Cramer
+ * ProcessWire 3.x, Copyright 2021 by Ryan Cramer
  * https://processwire.com
  *
  * @link http://processwire.com/api/variables/pages/ Offical $pages Documentation
@@ -18,9 +18,22 @@
  * 
  * PROPERTIES
  * ==========
- * @property bool $cloning Whether or not a clone() operation is currently active #pw-internal
- * @property bool $outputFormatting Current default output formatting mode. #pw-internal
- * @property bool $autojoin Whether or not autojoin is allowed (typically true) #pw-internal
+ * @property-read bool $autojoin Whether or not autojoin is allowed (typically true) #pw-internal
+ * @property-read bool $cloning Whether or not a clone() operation is currently active #pw-internal
+ * @property-read bool $outputFormatting Current default output formatting mode. #pw-internal
+ * @property-read bool $of Current default output formatting mode, alias of outputFormatting property. #pw-internal 3.0.191+
+ * @property-read PagesLoader $loader PagesLoader instance #pw-internal 3.0.191+
+ * @property-read PagesEditor $editor PagesEditor instance #pw-internal 3.0.191+
+ * @property-read PagesNames $names PagesNames instance #pw-internal 3.0.191+
+ * @property-read PagesLoaderCache $cacher PagesLoaderCache instance #pw-internal 3.0.191+
+ * @property-read PagesTrash $trasher PagesTrash instance #pw-internal 3.0.191+
+ * @property-read PagesRaw $raw PagesRaw instance #pw-internal 3.0.191+
+ * @property-read PagesRequest $request PagesRequest instance #pw-internal 3.0.191+
+ * @property-read PagesPathFinder $pathFinder PagesPathFinder instance #pw-internal 3.0.191+
+ * @property-read PagesType[] $types Array of all pages type managers. #pw-internal 3.0.191+
+ * @property-read Page $newPage Returns new Page instance. #pw-internal 3.0.191+
+ * @property-read Page $newPageArray Returns new PageArray instance. #pw-internal 3.0.191+
+ * @property-read Page $newNullPage Returns new NullPage instance. #pw-internal 3.0.191+
  * 
  * HOOKABLE METHODS
  * ================
@@ -552,15 +565,25 @@ class Pages extends Wire {
 	 * $a = $pages->findRaw("template=blog, options=objects|entities"); 
 	 * ~~~~~
 	 * 
+	 * In 3.0.193 the following additional options were added for the `$field` argument:
+	 * 
+	 *  - Specify `parent.field_name` or `parent.parent.field_name`, etc. to return values from parent(s).
+	 *  - Specify `references` or `references.field_name`, etc. to also return values from pages referencing found pages.
+	 *  - Specify `meta` or `meta.name` to also return values from page meta data.
+	 * 
 	 * #pw-advanced
 	 * #pw-group-retrieval
 	 *
 	 * @param string|array|Selectors|int $selector Page matching selector or page ID
-	 * @param string|array|Field $field Name of field/property to get, or array of them, or omit to get all (default='')
-	 *   Note: this argument may also be specified in the $selector argument as "field=foo" or "field=foo|bar|baz" (3.0.173+).
+	 * @param string|array|Field $field Name of field/property to get, or array of them, CSV string, or omit to get all (default='')
+	 *  - Optionally use associative array to rename fields in returned value, i.e. `['title' => 'label']` returns 'title' as 'label' in return value.
+	 *  - Note: this argument may also be specified in the $selector argument as "field=foo" or "field=foo|bar|baz" (3.0.173+).
 	 * @param array $options Options to adjust behavior (may also be specified in selector, i.e. “objects=1, entities=foo|bar”)
 	 *  - `objects` (bool): Use objects rather than associative arrays? (default=false) 3.0.174+
 	 *  - `entities` (bool|array): Entity encode string values? True or 1 to enable, or specify array of field names. (default=false) 3.0.174+
+	 *  - `flat` (bool|string): Flatten return value as `["field.subfield" => "value"]` rather than `["field" => ["subfield" => "value"]]`?
+	 *     Optionally specify field delimiter for the value, otherwise a period `.` will be used as the delimiter. (default=false) 3.0.193+
+	 *  - Note the `objects` and `flat` options are not meant to be used together.
 	 * @return array
 	 * @since 3.0.172
 	 *
@@ -1659,9 +1682,26 @@ class Pages extends Wire {
 	 *
 	 */
 	public function __get($key) {
-		if($key == 'outputFormatting') return $this->loader->getOutputFormatting(); 
-		if($key == 'cloning') return $this->editor()->isCloning(); 
-		if($key == 'autojoin') return $this->loader->getAutojoin();
+		switch($key) {
+			// A-Z
+			case 'autojoin': return $this->loader->getAutojoin();
+			case 'cacher': return $this->cacher();
+			case 'cloning': return $this->editor()->isCloning();
+			case 'editor': return $this->editor();
+			case 'loader': return $this->loader();
+			case 'names': return $this->names();
+			case 'newNullPage': return $this->newNullPage();
+			case 'newPage': return $this->newPage();
+			case 'newPageArray': return $this->newPageArray();
+			case 'of': return $this->of();
+			case 'outputFormatting': return $this->loader->getOutputFormatting();
+			case 'parents': return $this->parents();
+			case 'pathFinder': return $this->pathFinder();
+			case 'raw': return $this->raw();
+			case 'request': return $this->request();
+			case 'trasher': return $this->trasher();
+			case 'types': return $this->types();
+		}
 		return parent::__get($key); 
 	}
 
@@ -1860,10 +1900,10 @@ class Pages extends Wire {
 	public function newPage($options = array()) {
 		
 		if(empty($options)) return $this->wire(new Page());
-	
+
 		$options = $this->editor()->newPageOptions($options);
 		$template = isset($options['template']) ? $options['template'] : null;
-		$parent = isset($options['parent']) ? $options['parent']  : null;
+		$parent = isset($options['parent']) ? $options['parent'] : null;
 		$class = empty($options['pageClass']) ? 'Page' : $options['pageClass'];
 
 		unset($options['template'], $options['parent'], $options['pageClass']); 
@@ -1873,7 +1913,7 @@ class Pages extends Wire {
 		$page = $this->wire(new $class($template));
 		
 		if(!$page instanceof Page) $page = $this->wire(new Page($template));
-		if($parent && $parent->id) $page->parent = $parent;
+		if($parent) $page->parent = $parent;
 		if(count($options)) $page->setArray($options);
 		
 		return $page;

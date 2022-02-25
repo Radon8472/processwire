@@ -1412,7 +1412,7 @@ class WireDatabasePDO extends Wire implements WireDatabase {
 	 *
 	 */
 	public function escapeTable($table) {
-		$table = (string) trim($table); 
+		$table = (string) trim("$table"); 
 		if(ctype_alnum($table)) return $table; 
 		if(ctype_alnum(str_replace('_', '', $table))) return $table;
 		return preg_replace('/[^_a-zA-Z0-9]/', '_', $table);
@@ -1551,6 +1551,7 @@ class WireDatabasePDO extends Wire implements WireDatabase {
 	 * 
 	 */
 	public function closeConnection() {
+		$this->pdoLast = null;
 		$this->reader['pdo'] = null;
 		$this->writer['pdo'] = null;
 		$this->reader['init'] = false;

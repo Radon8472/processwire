@@ -227,6 +227,14 @@ class Sanitizer extends Wire {
 	/**
 	 * Sanitizer method names (A-Z) and type(s) they return 
 	 * 
+	 * a: array
+	 * b: boolean
+	 * f: float
+	 * i: integer
+	 * m: mixed
+	 * n: null
+	 * s: string
+	 * 
 	 * @var array
 	 * 
 	 */
@@ -247,6 +255,8 @@ class Sanitizer extends Wire {
 		'emailHeader' => 's',
 		'entities' => 's',
 		'entities1' => 's',
+		'entitiesA' => 'asifb',
+		'entitiesA1' => 'asifb',
 		'entitiesMarkdown' => 's',
 		'fieldName' => 's',
 		'fieldSubfield' => 's',
@@ -1802,7 +1812,7 @@ class Sanitizer extends Wire {
 		if(!strlen($value)) return '';
 
 		$scheme = parse_url($value, PHP_URL_SCHEME);
-		if($scheme !== false && strlen($scheme)) {
+		if(is_string($scheme) && strlen($scheme)) {
 			$_scheme = $scheme;
 			$scheme = strtolower($scheme);
 			$schemeError = false;
@@ -2572,6 +2582,72 @@ class Sanitizer extends Wire {
 	public function entities1($str, $flags = ENT_QUOTES, $encoding = 'UTF-8') {
 		if(!is_string($str)) $str = $this->string($str);
 		return htmlentities($str, $flags, $encoding, false);
+	}
+
+	/**
+	 * Entity encode with support for [A]rrays and other non-string values
+	 * 
+	 * This is similar to the existing entities() method with the following differences:
+	 * 
+	 * - Array values that are strings are encoded recursively to any depth and array is returned. 
+	 * - Associative array keys (strings) are entity encoded, integer keys are left as-is.
+	 * - Objects that implement __toString() are converted to string and entity encoded. 
+	 * - Objects that do not implement __toString() are converted to a class name.
+	 * - If given an int, float, bool, array or string, that is also the type returned.
+	 * 
+	 * #pw-group-arrays
+	 * #pw-group-strings
+	 * 
+	 * @param array|string|int|float|object|bool $value
+	 * @param int $flags
+	 * @param string $encoding
+	 * @param bool $doubleEncode
+	 * @return array|string|int|float|bool
+	 * @since 3.0.194
+	 * @see Sanitizer::entitiesA1(), Sanitizer::entities()
+	 * 
+	 */
+	public function entitiesA($value, $flags = ENT_QUOTES, $encoding = 'UTF-8', $doubleEncode = true) {
+		
+		if(!is_array($value)) {
+			if(is_string($value)) {
+				// value will be encoded below
+			} else if(is_object($value)) {
+				$value = method_exists($value, '__toString') ? "$value" : get_class($value);
+			} else if(is_int($value) || is_float($value) || is_bool($value)) {
+				// leave int, float, bool values as they are
+				return $value; 
+			}
+			return $this->entities($value, $flags, $encoding, $doubleEncode);
+		}
+		
+		$a = array();
+		
+		foreach($value as $k => $v) {
+			if(is_string($k)) $k = $this->entities($k, $flags, $encoding, $doubleEncode);
+			if(isset($a[$k])) continue;
+			$a[$k] = $this->entitiesA($v, $flags, $encoding, $doubleEncode);
+		}
+		
+		return $a;
+	}
+
+	/**
+	 * Same as entitiesA() but does not double encode
+	 * 
+	 * #pw-group-arrays
+	 * #pw-group-strings
+	 * 
+	 * @param array|string|int|float|object|bool $value
+	 * @param int $flags
+	 * @param string $encoding
+	 * @return array|string|int|float|bool
+	 * @since 3.0.194
+	 * @see Sanitizer::entitiesA(), Sanitizer::entities1()
+	 * 
+	 */
+	public function entitiesA1($value, $flags = ENT_QUOTES, $encoding = 'UTF-8') {
+		return $this->entitiesA($value, $flags, $encoding, false);
 	}
 	
 	/**
@@ -3880,6 +3956,15 @@ class Sanitizer extends Wire {
 	/**
 	 * Sanitize to floating point value
 	 * 
+	 * Values for `getString` argument:
+	 * 
+	 * - `false` (bool): do not return string value (default). 3.0.171+
+	 * - `true` (bool): locale aware floating point number string. 3.0.171+
+	 * - `f` (string): locale aware floating point number string (same as true). 3.0.193+
+	 * - `F` (string): non-locale aware floating point number string. 3.0.193+
+	 * - `e` (string): lowercase scientific notation (e.g. 1.2e+2). 3.0.193+
+	 * - `E` (string): uppercase scientific notation (e.g. 1.2E+2). 3.0.193+
+	 * 
 	 * #pw-group-numbers
 	 * 
 	 * @param float|string|int $value
@@ -3889,8 +3974,8 @@ class Sanitizer extends Wire {
 	 * 	- `blankValue` (null|int|string|float): Value to return (whether float or non-float) if provided $value is an empty non-float (default=0.0)
 	 * 	- `min` (float|null): Minimum allowed value, excluding blankValue (default=null)
 	 * 	- `max` (float|null): Maximum allowed value, excluding blankValue (default=null)
-	 *  - `getString (bool): Return a string rather than float value? (default=false) added 3.0.171
-	 * @return float
+	 *  - `getString (bool|string): Return a string rather than float value? 3.0.171+ (default=false). See value options in method description. 
+	 * @return float|string
 	 * 
 	 */
 	public function float($value, array $options = array()) {
@@ -3901,21 +3986,37 @@ class Sanitizer extends Wire {
 			'blankValue' => 0.0, // Value to return (whether float or non-float) if provided $value is an empty non-float (default=0.0)
 			'min' => null, // Minimum allowed value (excluding blankValue)
 			'max' => null, // Maximum allowed value (excluding blankValue)
-			'getString' => false, // Return a string rather than float value?
+			'getString' => false, // Return a string rather than float value? bool or f, F, e, E
 		);
 		
 		$options = array_merge($defaults, $options);
 	
 		if($value === null || $value === false) return $options['blankValue'];
 		if(!is_float($value) && !is_string($value)) $value = $this->string($value);
+		$e = 0;
 
 		if(is_string($value)) {
 			
 			$str = trim($value);
 			$prepend = '';
-			if(strpos($str, '-') === 0) {
+			$append = '';
+			
+			$c = substr($str, 0, 1);
+			while($c !== '' && $c !== '-' && $c !== '.' && $c !== ',' && !ctype_digit($c)) {
+				// trim off leading non-number content like currency symbols, names, etc.
+				$str = ltrim($str, $c);
+				$c = substr($str, 0, 1);
+			}
+		
+			if($c === '-') {
 				$prepend = '-';
 				$str = ltrim($str, '-');
+			}
+
+			if(stripos($str, 'E') && preg_match('/^([-]?[0-9., ]*\d)(E[-+]?\d+)/i', $str, $m)) {
+				$str = $m[1];
+				$append = $m[2];
+				$e = ((int) ltrim($append, '-+eE')); 
 			}
 		
 			if(!strlen($str)) return $options['blankValue'];
@@ -3959,15 +4060,37 @@ class Sanitizer extends Wire {
 					preg_replace('/[^0-9]/', '', substr($str, $pos + 1));
 			}
 
-			$value = $prepend . $value;
+			$value = $prepend . $value . $append;
 			if(!$options['getString']) $value = floatval($value);
+			
+		} else if(is_float($value)) {
+			$str = strtoupper("$value"); 
+			if(strpos($str, 'E')) $e = (int) ltrim(stristr("$str", 'E'), 'E-+'); 
+		}	
+		
+		if($options['precision'] === null && $e) {
+			$options['precision'] = $e;
+			if(strpos("$value", '.') !== false && preg_match('!\.(\d+)!', $value, $m)) {
+				$options['precision'] += strlen($m[1]);
+			}
 		}
 		
 		if(!$options['getString'] && !is_float($value)) $value = (float) $value;
 		if(!is_null($options['min']) && ((float) $value) < ((float) $options['min'])) $value = $options['min'];
 		if(!is_null($options['max']) && ((float) $value) > ((float) $options['max'])) $value = $options['max'];
 		if(!is_null($options['precision'])) $value = round((float) $value, (int) $options['precision'], (int) $options['mode']);
-		if($options['getString']) $value = "$value";
+		$value = (float) $value;
+		
+		if($options['getString']) {
+			$f = $options['getString'];
+			$f = is_string($f) && in_array($f, array('f', 'F', 'e', 'E')) ? $f : 'f';
+			if($options['precision'] === null) {
+				$value = stripos("$value", 'E') ? rtrim(sprintf("%.15$f", (float) $value), '0') : "$value";
+			} else {
+				$value = rtrim(sprintf("%.$options[precision]$f", (float) $value), '0');
+			}
+			$value = rtrim($value, '.');
+		}
 		
 		return $value;
 	}
